@@ -60,11 +60,33 @@ def _get_sample_faulty_records(engine, inspector, table_name, column_name, pk_co
         quoted_column = f'"{column_name}"'
         quoted_pk = f'"{pk_column}"'
         
-        # Get a few more columns for context (first 5 columns or so)
+        # Get columns for context
         columns = inspector.get_columns(table_name)
         context_columns = []
-        for i, col in enumerate(columns):
-            if i >= 5:  # Limit to first 5 columns
+        
+        # Find best timestamp columns (prefer creation, then update)
+        creation_keywords = ['creat', 'add', 'insert', 'start']
+        update_keywords = ['updat', 'modif', 'chang', 'edit']
+        timestamp_keywords = ['time', 'date', 'stamp']
+        
+        creation_col = None
+        update_col = None
+        
+        for col in columns:
+            col_name_lower = col["name"].lower()
+            
+            # Check if it's a timestamp-like column
+            if any(ts_word in col_name_lower for ts_word in timestamp_keywords):
+                # Prefer creation columns
+                if not creation_col and any(create_word in col_name_lower for create_word in creation_keywords):
+                    creation_col = f'"{col["name"]}"'
+                # Then update columns
+                elif not update_col and any(update_word in col_name_lower for update_word in update_keywords):
+                    update_col = f'"{col["name"]}"'
+        
+        # Add first few regular columns
+        for col in columns:
+            if len(context_columns) >= 6:  # Leave room for PK, faulty column, and timestamps
                 break
             context_columns.append(f'"{col["name"]}"')
         
@@ -73,6 +95,15 @@ def _get_sample_faulty_records(engine, inspector, table_name, column_name, pk_co
             context_columns.insert(0, quoted_pk)
         if quoted_column not in context_columns:
             context_columns.append(quoted_column)
+            
+        # Add timestamp columns (creation first, then update)
+        if creation_col and creation_col not in context_columns:
+            context_columns.append(creation_col)
+        if update_col and update_col not in context_columns and len(context_columns) < 9:
+            context_columns.append(update_col)
+                
+        # Limit total columns to avoid overly wide tables
+        context_columns = context_columns[:9]
         
         query = f"""
         SELECT {', '.join(context_columns)}
