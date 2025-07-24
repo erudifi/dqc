@@ -5,7 +5,7 @@ Simple data quality checker for PostgreSQL databases. Finds NaN values in table 
 ## Usage
 
 ```bash
-python main.py "postgresql://user:pass@host:port/dbname" "table_name"
+python main.py check-table "postgresql://user:pass@host:port/dbname" "table_name"
 ```
 
 ## Flags
@@ -14,6 +14,6 @@ python main.py "postgresql://user:pass@host:port/dbname" "table_name"
 - `--date-types` - Only check date/datetime columns  
 - `--text-types` - Only check text/string columns
 
-Flags can be combined: `--numeric-types --text-types`
+Flags can be combined: `python main.py check-table "db_url" "table" --numeric-types --text-types`
 
 Default behavior checks all columns.

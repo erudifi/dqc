@@ -5,13 +5,19 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.types import Integer, Float, Numeric, BigInteger, SmallInteger, Date, DateTime, Time, String, Text, VARCHAR, CHAR
 
 
-@click.command()
+@click.group()
+def dqc():
+    """Data Quality Checker for PostgreSQL databases."""
+    pass
+
+
+@dqc.command()
 @click.argument('database_url')
 @click.argument('table_name')
 @click.option('--numeric-types', is_flag=True, help='Only check numeric columns')
 @click.option('--date-types', is_flag=True, help='Only check date/datetime columns')
 @click.option('--text-types', is_flag=True, help='Only check text/string columns')
-def check_nan_values(database_url, table_name, numeric_types, date_types, text_types):
+def check_table(database_url, table_name, numeric_types, date_types, text_types):
     """Check for NaN values in columns of a PostgreSQL table."""
     
     try:
@@ -116,4 +122,4 @@ def check_nan_values(database_url, table_name, numeric_types, date_types, text_t
 
 
 if __name__ == '__main__':
-    check_nan_values()
+    dqc()
