@@ -11,6 +11,85 @@ def dqc():
     pass
 
 
+def _display_dataframe(columns, rows, indent="    "):
+    """Display data in pandas-like tabular format."""
+    if not rows or not columns:
+        return
+    
+    # Calculate column widths
+    col_widths = []
+    for i, col in enumerate(columns):
+        max_width = len(str(col))
+        for row in rows:
+            if i < len(row):
+                max_width = max(max_width, len(str(row[i])))
+        col_widths.append(min(max_width, 20))  # Cap at 20 chars
+    
+    # Print header
+    header = " | ".join(f"{col[:20]:<{col_widths[i]}}" for i, col in enumerate(columns))
+    click.echo(f"{indent}{header}")
+    
+    # Print separator
+    separator = "-+-".join("-" * width for width in col_widths)
+    click.echo(f"{indent}{separator}")
+    
+    # Print rows
+    for row in rows:
+        row_str = " | ".join(
+            f"{str(row[i])[:20]:<{col_widths[i]}}" if i < len(row) else f"{'':< {col_widths[i]}}"
+            for i in range(len(columns))
+        )
+        click.echo(f"{indent}{row_str}")
+
+
+def _get_primary_key_column(inspector, table_name):
+    """Get the primary key column name for a table."""
+    try:
+        pk_constraint = inspector.get_pk_constraint(table_name)
+        if pk_constraint and pk_constraint.get('constrained_columns'):
+            return pk_constraint['constrained_columns'][0]  # Return first PK column
+        return 'id'  # Default fallback
+    except:
+        return 'id'  # Default fallback
+
+
+def _get_sample_faulty_records(engine, inspector, table_name, column_name, pk_column):
+    """Get 5 sample records where the specified column contains 'NaN'."""
+    try:
+        quoted_table = f'"{table_name}"'
+        quoted_column = f'"{column_name}"'
+        quoted_pk = f'"{pk_column}"'
+        
+        # Get a few more columns for context (first 5 columns or so)
+        columns = inspector.get_columns(table_name)
+        context_columns = []
+        for i, col in enumerate(columns):
+            if i >= 5:  # Limit to first 5 columns
+                break
+            context_columns.append(f'"{col["name"]}"')
+        
+        # Make sure PK and faulty column are included
+        if quoted_pk not in context_columns:
+            context_columns.insert(0, quoted_pk)
+        if quoted_column not in context_columns:
+            context_columns.append(quoted_column)
+        
+        query = f"""
+        SELECT {', '.join(context_columns)}
+        FROM {quoted_table} 
+        WHERE {quoted_column}::text = 'NaN' 
+        LIMIT 5
+        """
+        
+        with engine.connect() as conn:
+            result = conn.execute(text(query))
+            column_names = [col.replace('"', '') for col in context_columns]
+            rows = result.fetchall()
+            return column_names, rows
+    except Exception:
+        return [], []
+
+
 def _check_table_nan_values(engine, inspector, table_name, numeric_types, date_types, text_types):
     """Helper function to check NaN values in a single table."""
     columns = inspector.get_columns(table_name)
@@ -58,6 +137,9 @@ def _check_table_nan_values(engine, inspector, table_name, numeric_types, date_t
         total_query = f"SELECT COUNT(*) FROM {table_name}"
         total_rows = conn.execute(text(total_query)).scalar()
     
+    # Get primary key column for sample records
+    pk_column = _get_primary_key_column(inspector, table_name)
+    
     # Collect results
     table_issues = []
     result_dict = result._asdict()
@@ -72,11 +154,18 @@ def _check_table_nan_values(engine, inspector, table_name, numeric_types, date_t
             
         if nan_count > 0:
             percentage = (nan_count / total_rows) * 100 if total_rows > 0 else 0
+            
+            # Get sample faulty records
+            sample_columns, sample_records = _get_sample_faulty_records(engine, inspector, table_name, col, pk_column)
+            
             table_issues.append({
                 'column': col,
                 'nan_count': nan_count,
                 'total_rows': total_rows,
-                'percentage': percentage
+                'percentage': percentage,
+                'pk_column': pk_column,
+                'sample_columns': sample_columns,
+                'sample_records': sample_records
             })
     
     return table_issues, total_rows, type_flags_used
@@ -121,6 +210,12 @@ def check_table(database_url, table_name, numeric_types, date_types, text_types)
         if table_issues:
             for issue in table_issues:
                 click.echo(f"{issue['column']}: {issue['nan_count']}/{issue['total_rows']} ({issue['percentage']:.2f}%)")
+                
+                # Show sample records in pandas-like format
+                if issue['sample_records']:
+                    click.echo(f"  Sample faulty records:")
+                    _display_dataframe(issue['sample_columns'], issue['sample_records'])
+                    click.echo()
         else:
             if type_flags_used:
                 flag_descriptions = []
@@ -211,6 +306,12 @@ def check_database(database_url, numeric_types, date_types, text_types, skip_lar
                 
                 for issue in data['issues']:
                     click.echo(f"  {issue['column']}: {issue['nan_count']}/{issue['total_rows']} ({issue['percentage']:.2f}%)")
+                    
+                    # Show sample records in pandas-like format
+                    if issue['sample_records']:
+                        click.echo(f"    Sample faulty records:")
+                        _display_dataframe(issue['sample_columns'], issue['sample_records'], indent="      ")
+                        click.echo()
         else:
             if type_flags_used:
                 flag_descriptions = []
