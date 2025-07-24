@@ -4,8 +4,14 @@ Simple data quality checker for PostgreSQL databases. Finds NaN values in table 
 
 ## Usage
 
+Check a single table:
 ```bash
 python main.py check-table "postgresql://user:pass@host:port/dbname" "table_name"
+```
+
+Check all tables in database:
+```bash
+python main.py check-database "postgresql://user:pass@host:port/dbname"
 ```
 
 ## Flags
