@@ -145,7 +145,9 @@ def check_table(database_url, table_name, numeric_types, date_types, text_types)
 @click.option('--numeric-types', is_flag=True, help='Only check numeric columns')
 @click.option('--date-types', is_flag=True, help='Only check date/datetime columns')
 @click.option('--text-types', is_flag=True, help='Only check text/string columns')
-def check_database(database_url, numeric_types, date_types, text_types):
+@click.option('--skip-large-tables', is_flag=True, help='Skip tables with more than 500K rows')
+@click.option('--skip-table', multiple=True, help='Skip specific tables by name (can be used multiple times)')
+def check_database(database_url, numeric_types, date_types, text_types, skip_large_tables, skip_table):
     """Check for NaN values in all tables of a PostgreSQL database."""
     
     try:
@@ -166,6 +168,21 @@ def check_database(database_url, numeric_types, date_types, text_types):
             click.echo(f"[{i}/{len(table_names)}] Checking table: {table_name}")
             
             try:
+                # Check if table should be skipped by name
+                if table_name in skip_table:
+                    click.echo(f"  -> Skipped (explicitly excluded)")
+                    continue
+                
+                # Check table size if skip-large-tables flag is used
+                if skip_large_tables:
+                    with engine.connect() as conn:
+                        count_query = f'SELECT COUNT(*) FROM "{table_name}"'
+                        row_count = conn.execute(text(count_query)).scalar()
+                        
+                        if row_count > 500000:
+                            click.echo(f"  -> Skipped (large table: {row_count:,} rows)")
+                            continue
+                
                 table_issues, total_rows, type_flags_used = _check_table_nan_values(
                     engine, inspector, table_name, numeric_types, date_types, text_types
                 )
