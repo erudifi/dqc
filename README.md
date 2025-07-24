@@ -16,7 +16,7 @@ python main.py check-database "postgresql://user:pass@host:port/dbname"
 
 ## Flags
 
-**Column type filters:**
+**Column type filters (default: check all columns):**
 - `--numeric-types` - Only check numeric columns
 - `--date-types` - Only check date/datetime columns  
 - `--text-types` - Only check text/string columns
@@ -28,14 +28,18 @@ python main.py check-database "postgresql://user:pass@host:port/dbname"
 ## Examples
 
 ```bash
-# Check single table with type filters
+# Check all columns in a table (default behavior)
+python main.py check-table "db_url" "table"
+
+# Check all columns in all tables (default behavior)
+python main.py check-database "db_url"
+
+# Check only specific column types
 python main.py check-table "db_url" "table" --numeric-types --text-types
 
-# Check database, skip large tables and specific tables
+# Check database with filters
 python main.py check-database "db_url" --skip-large-tables --skip-table django_session --skip-table auth_log
 
 # Check only numeric columns across all tables
 python main.py check-database "db_url" --numeric-types
 ```
-
-Default behavior checks all columns.
