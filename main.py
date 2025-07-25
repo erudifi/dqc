@@ -362,5 +362,87 @@ def check_database(database_url, numeric_types, date_types, text_types, skip_lar
         click.echo(f"Error: {str(e)}")
 
 
+@dqc.command()
+@click.argument('database_url')
+@click.argument('column_name')
+def check_column(database_url, column_name):
+    """Check if a column exists across all tables in a PostgreSQL database."""
+    
+    try:
+        engine = create_engine(database_url)
+        inspector = inspect(engine)
+        
+        table_names = inspector.get_table_names()
+        
+        if not table_names:
+            click.echo("No tables found in database.")
+            return
+        
+        click.echo(f"Checking column '{column_name}' across {len(table_names)} tables...")
+        click.echo("=" * 60)
+        
+        tables_with_column = []
+        tables_without_column = []
+        
+        for table_name in table_names:
+            try:
+                columns = inspector.get_columns(table_name)
+                column_info = None
+                
+                # Look for the column (case-insensitive)
+                for col in columns:
+                    if col['name'].lower() == column_name.lower():
+                        column_info = {
+                            'name': col['name'],
+                            'type': str(col['type']),
+                            'nullable': col.get('nullable', True),
+                            'default': col.get('default', None)
+                        }
+                        break
+                
+                if column_info:
+                    tables_with_column.append((table_name, column_info))
+                else:
+                    tables_without_column.append(table_name)
+                    
+            except Exception as e:
+                click.echo(f"Error checking table '{table_name}': {str(e)}")
+                continue
+        
+        # Display results
+        if tables_with_column:
+            click.echo(f"\nTables WITH column '{column_name}' ({len(tables_with_column)}):")
+            click.echo("-" * 50)
+            
+            for table_name, col_info in tables_with_column:
+                nullable_str = "NULL" if col_info['nullable'] else "NOT NULL"
+                default_str = f" DEFAULT {col_info['default']}" if col_info['default'] else ""
+                click.echo(f"  {table_name}: {col_info['name']} ({col_info['type']}) {nullable_str}{default_str}")
+        
+        if tables_without_column:
+            click.echo(f"\nTables WITHOUT column '{column_name}' ({len(tables_without_column)}):")
+            click.echo("-" * 50)
+            
+            for table_name in tables_without_column:
+                click.echo(f"  {table_name}")
+        
+        # Summary
+        total_tables = len(tables_with_column) + len(tables_without_column)
+        coverage_percent = (len(tables_with_column) / total_tables * 100) if total_tables > 0 else 0
+        
+        click.echo(f"\nSummary:")
+        click.echo(f"  Column coverage: {len(tables_with_column)}/{total_tables} tables ({coverage_percent:.1f}%)")
+        
+        if not tables_with_column:
+            click.echo(f"  Column '{column_name}' does not exist in any table.")
+        elif not tables_without_column:
+            click.echo(f"  Column '{column_name}' exists in all tables.")
+        else:
+            click.echo(f"  Column '{column_name}' is missing from {len(tables_without_column)} tables.")
+            
+    except Exception as e:
+        click.echo(f"Error: {str(e)}")
+
+
 if __name__ == '__main__':
     dqc()

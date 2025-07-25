@@ -14,6 +14,11 @@ Check all tables in database:
 python main.py check-database "postgresql://user:pass@host:port/dbname"
 ```
 
+Check if a column exists across all tables:
+```bash
+python main.py check-column "postgresql://user:pass@host:port/dbname" "column_name"
+```
+
 ## Flags
 
 **Column type filters (default: check all columns):**
@@ -42,4 +47,7 @@ python main.py check-database "db_url" --skip-large-tables --skip-table django_s
 
 # Check only numeric columns across all tables
 python main.py check-database "db_url" --numeric-types
+
+# Check column existence across all tables
+python main.py check-column "db_url" "id"
 ```
