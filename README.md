@@ -1,15 +1,24 @@
 # dqc
 
-Simple data quality checker for PostgreSQL databases.
+Comprehensive data quality checker for PostgreSQL databases.
 
 ## Quick Usage
 
 ```bash
-# Check a single table for NaN values
+# Run all data quality checks on a single table (DEFAULT: NaN, references, encoding)
 python main.py check-table "postgresql://user:pass@host:port/dbname" "table_name"
 
-# Check all tables for NaN values
+# Run all data quality checks on all tables (DEFAULT: NaN, references, encoding)
 python main.py check-database "postgresql://user:pass@host:port/dbname"
+
+# Check only NaN values across all tables
+python main.py check-nan "postgresql://user:pass@host:port/dbname"
+
+# Check only foreign key references across all tables
+python main.py check-references "postgresql://user:pass@host:port/dbname"
+
+# Check only character encoding issues across all tables
+python main.py check-encoding "postgresql://user:pass@host:port/dbname"
 
 # Check if a column exists across all tables
 python main.py check-column "postgresql://user:pass@host:port/dbname" "column_name"
@@ -19,61 +28,167 @@ python main.py check-column "postgresql://user:pass@host:port/dbname" "column_na
 
 ### `check-table`
 
-Check for NaN values in columns of a single table.
+Run comprehensive data quality checks on a single table.
 
 **Usage:** `python main.py check-table DATABASE_URL TABLE_NAME [FLAGS]`
 
 **Behavior:**
-- By default, checks all columns in the table
-- Shows NaN count, percentage, and sample faulty records
+- **By default, runs ALL checks**: NaN values, orphaned references, and encoding issues
+- Shows organized summary of all issues found in the table
 - Sample records include primary key and context columns
 
-**Flags:**
+**Column Type Flags:**
 - `--numeric-types` - Only check numeric columns
 - `--date-types` - Only check date/datetime columns
 - `--text-types` - Only check text/string columns
 
+**Check Control Flags:**
+- `--skip-nan-check` - Skip NaN value detection
+- `--skip-references-check` - Skip foreign key validation
+- `--skip-encoding-check` - Skip character encoding checks
+
 **Examples:**
 ```bash
-# Check all columns
+# Run all data quality checks (default)
 python main.py check-table "db_url" "users"
 
-# Check only numeric columns
-python main.py check-table "db_url" "loans" --numeric-types
+# Skip expensive checks
+python main.py check-table "db_url" "loans" --skip-references-check --skip-encoding-check
 
-# Check multiple column types
-python main.py check-table "db_url" "payments" --numeric-types --date-types
+# Focus only on NaN issues in numeric columns
+python main.py check-table "db_url" "payments" --skip-references-check --skip-encoding-check --numeric-types
 ```
 
 ### `check-database`
 
-Check for NaN values across all tables in a database.
+Run comprehensive data quality checks across all tables in a database.
 
 **Usage:** `python main.py check-database DATABASE_URL [FLAGS]`
 
 **Behavior:**
-- By default, checks all columns in all tables
+- **By default, runs ALL checks**: NaN values, orphaned references, and encoding issues
 - Shows progress as tables are processed
-- Displays summary of issues found across the database
+- Displays organized summary of all issues found
 - Sample records include primary key and context columns
 
-**Flags:**
+**Column Type Flags:**
 - `--numeric-types` - Only check numeric columns
 - `--date-types` - Only check date/datetime columns
 - `--text-types` - Only check text/string columns
+
+**Table Filtering Flags:**
+- `--skip-large-tables` - Skip tables with more than 500K rows
+- `--skip-table TABLE_NAME` - Skip specific tables (can be used multiple times)
+
+**Check Control Flags:**
+- `--skip-nan-check` - Skip NaN value detection
+- `--skip-references-check` - Skip foreign key validation
+- `--skip-encoding-check` - Skip character encoding checks
+
+**Examples:**
+```bash
+# Run all data quality checks (default)
+python main.py check-database "db_url"
+
+# Skip expensive checks for large databases
+python main.py check-database "db_url" --skip-references-check --skip-encoding-check
+
+# Focus only on NaN issues with table filtering
+python main.py check-database "db_url" --skip-references-check --skip-encoding-check --skip-large-tables
+
+# Check only numeric columns across all tables
+python main.py check-database "db_url" --numeric-types
+```
+
+### `check-nan`
+
+Check for NaN values across all tables in a database.
+
+**Usage:** `python main.py check-nan DATABASE_URL [FLAGS]`
+
+**Behavior:**
+- By default, checks all columns in all tables for NaN values
+- Shows progress as tables are processed
+- Displays summary of NaN issues found across the database
+- Sample records include primary key and context columns
+
+**Column Type Flags:**
+- `--numeric-types` - Only check numeric columns
+- `--date-types` - Only check date/datetime columns
+- `--text-types` - Only check text/string columns
+
+**Table Filtering Flags:**
 - `--skip-large-tables` - Skip tables with more than 500K rows
 - `--skip-table TABLE_NAME` - Skip specific tables (can be used multiple times)
 
 **Examples:**
 ```bash
-# Check all tables and columns
-python main.py check-database "db_url"
-
-# Skip large tables and specific tables
-python main.py check-database "db_url" --skip-large-tables --skip-table django_session --skip-table auth_log
+# Check all tables for NaN values
+python main.py check-nan "db_url"
 
 # Check only numeric columns across all tables
-python main.py check-database "db_url" --numeric-types
+python main.py check-nan "db_url" --numeric-types
+
+# Skip large tables and specific problematic tables
+python main.py check-nan "db_url" --skip-large-tables --skip-table logs --skip-table raw_data
+```
+
+### `check-references`
+
+Check for orphaned foreign key references across all tables in a database.
+
+**Usage:** `python main.py check-references DATABASE_URL [FLAGS]`
+
+**Behavior:**
+- Finds records with foreign keys pointing to non-existent parent records
+- Handles composite foreign keys properly
+- Shows sample orphaned records with context
+- Displays foreign key constraint details
+
+**Flags:**
+- `--skip-large-tables` - Skip tables with more than 500K rows
+- `--skip-table TABLE_NAME` - Skip specific tables (can be used multiple times)
+
+**Examples:**
+```bash
+# Check all tables for orphaned references
+python main.py check-references "db_url"
+
+# Skip large tables to speed up analysis
+python main.py check-references "db_url" --skip-large-tables
+```
+
+### `check-encoding`
+
+Check for character encoding issues across all tables in a database.
+
+**Usage:** `python main.py check-encoding DATABASE_URL [FLAGS]`
+
+**Behavior:**
+- By default, checks all text/string columns
+- Detects null bytes, control characters, and invalid UTF-8 sequences
+- Shows sample problematic records with context
+- Focuses on columns that commonly cause JDBC/application failures
+
+**Column Type Flags:**
+- `--numeric-types` - Only check numeric columns
+- `--date-types` - Only check date/datetime columns
+- `--text-types` - Only check text/string columns
+
+**Table Filtering Flags:**
+- `--skip-large-tables` - Skip tables with more than 500K rows
+- `--skip-table TABLE_NAME` - Skip specific tables (can be used multiple times)
+
+**Examples:**
+```bash
+# Check all text columns for encoding issues
+python main.py check-encoding "db_url"
+
+# Check only specific column types
+python main.py check-encoding "db_url" --text-types
+
+# Skip problematic tables
+python main.py check-encoding "db_url" --skip-table logs --skip-table raw_data
 ```
 
 ### `check-column`
