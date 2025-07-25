@@ -920,7 +920,7 @@ def check_column(database_url, column_name):
         tables_with_column = []
         tables_without_column = []
         
-        for table_name in table_names:
+        for i, table_name in enumerate(table_names, 1):
             try:
                 columns = inspector.get_columns(table_name)
                 column_info = None
@@ -936,13 +936,17 @@ def check_column(database_url, column_name):
                         }
                         break
                 
+                # Real-time progress display
+                status = "✓ HAS COLUMN" if column_info else "✗ MISSING"
+                click.echo(f"[{i}/{len(table_names)}] {table_name}: {status}")
+                
                 if column_info:
                     tables_with_column.append((table_name, column_info))
                 else:
                     tables_without_column.append(table_name)
                     
             except Exception as e:
-                click.echo(f"Error checking table '{table_name}': {str(e)}")
+                click.echo(f"[{i}/{len(table_names)}] {table_name}: ERROR - {str(e)}")
                 continue
         
         # Display results
@@ -960,7 +964,9 @@ def check_column(database_url, column_name):
             click.echo("-" * 50)
             
             for table_name in tables_without_column:
-                click.echo(f"  {table_name}")
+                row_count = _count_table_rows(engine, table_name)
+                formatted_count = _format_row_count(row_count)
+                click.echo(f"  {table_name:<30} {formatted_count} rows")
         
         # Summary
         total_tables = len(tables_with_column) + len(tables_without_column)
