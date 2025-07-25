@@ -20,6 +20,9 @@ python main.py check-references "postgresql://user:pass@host:port/dbname"
 # Check only character encoding issues across all tables
 python main.py check-encoding "postgresql://user:pass@host:port/dbname"
 
+# Check for large tables (over 500K rows by default)
+python main.py check-large-tables "postgresql://user:pass@host:port/dbname"
+
 # Check if a column exists across all tables
 python main.py check-column "postgresql://user:pass@host:port/dbname" "column_name"
 ```
@@ -189,6 +192,43 @@ python main.py check-encoding "db_url" --text-types
 
 # Skip problematic tables
 python main.py check-encoding "db_url" --skip-table logs --skip-table raw_data
+```
+
+### `check-large-tables`
+
+Check for tables that exceed a row count threshold.
+
+**Usage:** `python main.py check-large-tables DATABASE_URL [FLAGS]`
+
+**Behavior:**
+- Scans all tables and counts rows in each
+- By default, shows tables with more than 500,000 rows
+- Displays row counts in human-readable format with commas
+- Shows percentage over threshold for large tables
+- Provides summary statistics
+
+**Flags:**
+- `--threshold INTEGER` - Override default threshold (default: 500,000)
+- `--show-all` - Show all tables with row counts, not just large ones
+- `--top N` - Show top N largest tables regardless of threshold
+- `--skip-table TABLE_NAME` - Skip specific tables (can be used multiple times)
+
+**Examples:**
+```bash
+# Check for tables over 500K rows (default)
+python main.py check-large-tables "db_url"
+
+# Check for tables over 1M rows
+python main.py check-large-tables "db_url" --threshold 1000000
+
+# Show all table sizes sorted by row count
+python main.py check-large-tables "db_url" --show-all
+
+# Show top 10 largest tables regardless of threshold
+python main.py check-large-tables "db_url" --top 10
+
+# Skip system/log tables
+python main.py check-large-tables "db_url" --skip-table django_session --skip-table access_logs
 ```
 
 ### `check-column`

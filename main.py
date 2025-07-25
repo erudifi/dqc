@@ -430,6 +430,83 @@ def _check_table_references(engine, inspector, table_name):
         return []
 
 
+def _count_table_rows(engine, table_name):
+    """Count rows in a single table."""
+    try:
+        quoted_table = f'"{table_name}"'
+        query = f"SELECT COUNT(*) FROM {quoted_table}"
+        
+        with engine.connect() as conn:
+            return conn.execute(text(query)).scalar()
+    except Exception:
+        return 0
+
+
+def _format_row_count(count):
+    """Format row count with commas for readability."""
+    return f"{count:,}"
+
+
+def _calculate_percentage_over(count, threshold):
+    """Calculate percentage over threshold."""
+    if threshold == 0:
+        return 0
+    return ((count - threshold) / threshold) * 100
+
+
+def _check_table_sizes(engine, inspector, threshold=500000, show_all=False, top=None, skip_tables=None):
+    """Get table sizes and identify large tables."""
+    if skip_tables is None:
+        skip_tables = []
+    
+    table_names = inspector.get_table_names()
+    table_sizes = []
+    
+    # Progress tracking
+    large_count = 0
+    processed_count = 0
+    
+    for i, table_name in enumerate(table_names, 1):
+        if table_name in skip_tables:
+            continue
+            
+        row_count = _count_table_rows(engine, table_name)
+        is_large = row_count > threshold
+        
+        # Real-time progress display
+        formatted_count = _format_row_count(row_count)
+        status = ""
+        if is_large:
+            status = " ⚠️  LARGE"
+            large_count += 1
+        
+        click.echo(f"[{i}/{len(table_names)}] {table_name}: {formatted_count} rows{status}")
+        processed_count += 1
+        
+        table_sizes.append({
+            'table_name': table_name,
+            'row_count': row_count,
+            'is_large': is_large,
+            'percentage_over': _calculate_percentage_over(row_count, threshold) if is_large else 0
+        })
+    
+    # Sort by row count (descending)
+    table_sizes.sort(key=lambda x: x['row_count'], reverse=True)
+    
+    # Apply filtering based on parameters
+    if top:
+        # Show top N tables regardless of threshold
+        results = table_sizes[:top]
+    elif show_all:
+        # Show all tables
+        results = table_sizes
+    else:
+        # Show only large tables
+        results = [t for t in table_sizes if t['is_large']]
+    
+    return results, table_sizes
+
+
 def _check_table_nan_values(engine, inspector, table_name, numeric_types, date_types, text_types):
     """Helper function to check NaN values in a single table."""
     columns = inspector.get_columns(table_name)
@@ -1207,6 +1284,78 @@ def check_encoding(database_url, numeric_types, date_types, text_types, skip_lar
                 column_description = "text/string columns"
             
             click.echo(f"\nNo character encoding issues found in {column_description} across all tables.")
+            
+    except Exception as e:
+        click.echo(f"Error: {str(e)}")
+
+
+@dqc.command()
+@click.argument('database_url')
+@click.option('--threshold', type=int, default=500000, help='Row count threshold for large tables (default: 500,000)')
+@click.option('--show-all', is_flag=True, help='Show all tables with row counts, not just large ones')
+@click.option('--top', type=int, help='Show top N largest tables regardless of threshold')
+@click.option('--skip-table', multiple=True, help='Skip specific tables by name (can be used multiple times)')
+def check_large_tables(database_url, threshold, show_all, top, skip_table):
+    """Check for tables that exceed a row count threshold."""
+    
+    try:
+        engine = create_engine(database_url)
+        inspector = inspect(engine)
+        
+        table_names = inspector.get_table_names()
+        
+        if not table_names:
+            click.echo("No tables found in database.")
+            return
+        
+        click.echo(f"Checking table sizes across {len(table_names)} tables...")
+        
+        # Get table sizes (with real-time progress display)
+        filtered_results, all_table_sizes = _check_table_sizes(
+            engine, inspector, threshold, show_all, top, skip_table
+        )
+        
+        # Summary display
+        if top:
+            click.echo(f"\nTOP {top} LARGEST TABLES:")
+            click.echo("=" * 50)
+            
+            for table_info in filtered_results:
+                formatted_count = _format_row_count(table_info['row_count'])
+                click.echo(f"{table_info['table_name']:<30} {formatted_count} rows")
+                
+        elif show_all:
+            click.echo(f"\nALL TABLES (sorted by size):")
+            click.echo("=" * 50)
+            
+            for table_info in filtered_results:
+                formatted_count = _format_row_count(table_info['row_count'])
+                status = " ⚠️" if table_info['is_large'] else ""
+                click.echo(f"{table_info['table_name']:<30} {formatted_count} rows{status}")
+                
+        else:
+            # Show only large tables (default behavior)
+            if filtered_results:
+                formatted_threshold = _format_row_count(threshold)
+                click.echo(f"\nLARGE TABLES (threshold: {formatted_threshold} rows):")
+                click.echo("=" * 60)
+                
+                for table_info in filtered_results:
+                    formatted_count = _format_row_count(table_info['row_count'])
+                    percentage = table_info['percentage_over']
+                    click.echo(f"{table_info['table_name']:<30} {formatted_count} rows ({percentage:.0f}% over threshold)")
+            else:
+                formatted_threshold = _format_row_count(threshold)
+                click.echo(f"\nNo tables exceed the threshold of {formatted_threshold} rows.")
+        
+        # Final summary
+        total_tables = len([t for t in all_table_sizes if t['table_name'] not in skip_table])
+        large_tables = len([t for t in all_table_sizes if t['is_large'] and t['table_name'] not in skip_table])
+        
+        if total_tables > 0:
+            percentage = (large_tables / total_tables) * 100
+            formatted_threshold = _format_row_count(threshold)
+            click.echo(f"\nSummary: {large_tables}/{total_tables} tables exceed threshold of {formatted_threshold} rows ({percentage:.1f}%)")
             
     except Exception as e:
         click.echo(f"Error: {str(e)}")
