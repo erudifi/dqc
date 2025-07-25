@@ -447,6 +447,31 @@ def _format_row_count(count):
     return f"{count:,}"
 
 
+def _check_table_primary_key(inspector, table_name):
+    """Check if a table has a primary key and return details."""
+    try:
+        pk_constraint = inspector.get_pk_constraint(table_name)
+        
+        if pk_constraint and pk_constraint.get('constrained_columns'):
+            return {
+                'has_pk': True,
+                'pk_name': pk_constraint.get('name', 'unnamed_pk'),
+                'pk_columns': pk_constraint['constrained_columns']
+            }
+        else:
+            return {
+                'has_pk': False,
+                'pk_name': None,
+                'pk_columns': []
+            }
+    except Exception:
+        return {
+            'has_pk': False,
+            'pk_name': None,
+            'pk_columns': []
+        }
+
+
 def _calculate_percentage_over(count, threshold):
     """Calculate percentage over threshold."""
     if threshold == 0:
@@ -597,7 +622,8 @@ def _check_table_nan_values(engine, inspector, table_name, numeric_types, date_t
 @click.option('--skip-nan-check', is_flag=True, help='Skip NaN value detection')
 @click.option('--skip-references-check', is_flag=True, help='Skip foreign key validation')
 @click.option('--skip-encoding-check', is_flag=True, help='Skip character encoding checks')
-def check_table(database_url, table_name, numeric_types, date_types, text_types, skip_nan_check, skip_references_check, skip_encoding_check):
+@click.option('--skip-pk-check', is_flag=True, help='Skip primary key validation')
+def check_table(database_url, table_name, numeric_types, date_types, text_types, skip_nan_check, skip_references_check, skip_encoding_check, skip_pk_check):
     """Run comprehensive data quality checks on a single PostgreSQL table."""
     
     try:
@@ -616,6 +642,8 @@ def check_table(database_url, table_name, numeric_types, date_types, text_types,
             checks_to_run.append("orphaned references")
         if not skip_encoding_check:
             checks_to_run.append("encoding issues")
+        if not skip_pk_check:
+            checks_to_run.append("primary key validation")
         
         if not checks_to_run:
             click.echo("All checks have been skipped. Nothing to do.")
@@ -623,6 +651,17 @@ def check_table(database_url, table_name, numeric_types, date_types, text_types,
         
         checks_description = ", ".join(checks_to_run)
         click.echo(f"Running comprehensive data quality checks ({checks_description}) on table '{table_name}'...")
+        
+        # Check primary key first (if not skipped)
+        pk_issues = None
+        if not skip_pk_check:
+            pk_info = _check_table_primary_key(inspector, table_name)
+            if not pk_info['has_pk']:
+                pk_issues = {
+                    'table_name': table_name,
+                    'has_pk': False,
+                    'row_count': _count_table_rows(engine, table_name)
+                }
         
         # Get total row count
         with engine.connect() as conn:
@@ -655,12 +694,19 @@ def check_table(database_url, table_name, numeric_types, date_types, text_types,
                 encoding_issues = table_issues
         
         # Display results
-        total_issues_found = bool(nan_issues or reference_issues or encoding_issues)
+        total_issues_found = bool(nan_issues or reference_issues or encoding_issues or pk_issues)
         
         if total_issues_found:
             click.echo(f"\n{'='*60}")
             click.echo(f"DATA QUALITY ISSUES - Table: {table_name} (Total rows: {total_rows})")
             click.echo(f"{'='*60}")
+            
+            # Display primary key issues
+            if pk_issues and not skip_pk_check:
+                click.echo(f"\n🔑 PRIMARY KEY:")
+                click.echo("-" * 30)
+                formatted_count = _format_row_count(pk_issues['row_count'])
+                click.echo(f"  ⚠️  Table has NO primary key ({formatted_count} rows)")
             
             # Display NaN issues
             if nan_issues and not skip_nan_check:
@@ -722,7 +768,8 @@ def check_table(database_url, table_name, numeric_types, date_types, text_types,
 @click.option('--skip-nan-check', is_flag=True, help='Skip NaN value detection')
 @click.option('--skip-references-check', is_flag=True, help='Skip foreign key validation')
 @click.option('--skip-encoding-check', is_flag=True, help='Skip character encoding checks')
-def check_database(database_url, numeric_types, date_types, text_types, skip_large_tables, skip_table, skip_nan_check, skip_references_check, skip_encoding_check):
+@click.option('--skip-pk-check', is_flag=True, help='Skip primary key validation')
+def check_database(database_url, numeric_types, date_types, text_types, skip_large_tables, skip_table, skip_nan_check, skip_references_check, skip_encoding_check, skip_pk_check):
     """Run comprehensive data quality checks on all tables of a PostgreSQL database."""
     
     try:
@@ -743,6 +790,8 @@ def check_database(database_url, numeric_types, date_types, text_types, skip_lar
             checks_to_run.append("orphaned references")
         if not skip_encoding_check:
             checks_to_run.append("encoding issues")
+        if not skip_pk_check:
+            checks_to_run.append("primary key validation")
         
         if not checks_to_run:
             click.echo("All checks have been skipped. Nothing to do.")
@@ -755,6 +804,7 @@ def check_database(database_url, numeric_types, date_types, text_types, skip_lar
         nan_issues = {}
         reference_issues = {}
         encoding_issues = {}
+        pk_issues = []
         
         for i, table_name in enumerate(table_names, 1):
             click.echo(f"[{i}/{len(table_names)}] Checking table: {table_name}")
@@ -813,6 +863,16 @@ def check_database(database_url, numeric_types, date_types, text_types, skip_lar
                             'total_rows': total_rows
                         }
                 
+                # Run primary key check
+                if not skip_pk_check:
+                    pk_info = _check_table_primary_key(inspector, table_name)
+                    if not pk_info['has_pk']:
+                        row_count = _count_table_rows(engine, table_name)
+                        pk_issues.append({
+                            'table_name': table_name,
+                            'row_count': row_count
+                        })
+                
                 # Summary for this table
                 issues_found = []
                 if table_name in nan_issues:
@@ -821,6 +881,8 @@ def check_database(database_url, numeric_types, date_types, text_types, skip_lar
                     issues_found.append(f"References: {len(reference_issues[table_name]['issues'])} violations")
                 if table_name in encoding_issues:
                     issues_found.append(f"Encoding: {len(encoding_issues[table_name]['issues'])} columns")
+                if any(issue['table_name'] == table_name for issue in pk_issues):
+                    issues_found.append("PK: missing")
                 
                 if issues_found:
                     click.echo(f"  -> Issues found: {', '.join(issues_found)}")
@@ -832,12 +894,22 @@ def check_database(database_url, numeric_types, date_types, text_types, skip_lar
                 continue
         
         # Display results
-        total_issues_found = bool(nan_issues or reference_issues or encoding_issues)
+        total_issues_found = bool(nan_issues or reference_issues or encoding_issues or pk_issues)
         
         if total_issues_found:
             click.echo(f"\n{'='*70}")
             click.echo("DATA QUALITY ISSUES SUMMARY")
             click.echo(f"{'='*70}")
+            
+            # Display primary key issues
+            if pk_issues and not skip_pk_check:
+                click.echo(f"\n🔑 PRIMARY KEY ISSUES - Found in {len(pk_issues)} tables:")
+                click.echo("-" * 50)
+                
+                for pk_issue in pk_issues:
+                    formatted_count = _format_row_count(pk_issue['row_count'])
+                    click.echo(f"  {pk_issue['table_name']:<30} {formatted_count} rows (no primary key)")
+                click.echo()
             
             # Display NaN issues
             if nan_issues and not skip_nan_check:
@@ -1363,6 +1435,91 @@ def check_large_tables(database_url, threshold, show_all, top, skip_table):
             formatted_threshold = _format_row_count(threshold)
             click.echo(f"\nSummary: {large_tables}/{total_tables} tables exceed threshold of {formatted_threshold} rows ({percentage:.1f}%)")
             
+    except Exception as e:
+        click.echo(f"Error: {str(e)}")
+
+
+@dqc.command()
+@click.argument('database_url')
+@click.option('--skip-large-tables', is_flag=True, help='Skip tables with more than 500K rows')
+@click.option('--skip-table', multiple=True, help='Skip specific tables by name (can be used multiple times)')
+def check_pk(database_url, skip_large_tables, skip_table):
+    """Check for tables that have or lack primary keys."""
+    
+    try:
+        engine = create_engine(database_url)
+        inspector = inspect(engine)
+        
+        table_names = inspector.get_table_names()
+        
+        if not table_names:
+            click.echo("No tables found in database.")
+            return
+        
+        click.echo(f"Checking primary keys across {len(table_names)} tables...")
+        click.echo("=" * 60)
+        
+        tables_with_pk = []
+        tables_without_pk = []
+        
+        for i, table_name in enumerate(table_names, 1):
+            if table_name in skip_table:
+                click.echo(f"[{i}/{len(table_names)}] {table_name}: SKIPPED")
+                continue
+                
+            # Check table size if skip-large-tables flag is used
+            if skip_large_tables:
+                row_count = _count_table_rows(engine, table_name)
+                if row_count > 500000:
+                    click.echo(f"[{i}/{len(table_names)}] {table_name}: SKIPPED (large table: {row_count:,} rows)")
+                    continue
+            
+            pk_info = _check_table_primary_key(inspector, table_name)
+            
+            # Real-time progress display
+            if pk_info['has_pk']:
+                pk_columns = ', '.join(pk_info['pk_columns'])
+                status = f"✓ HAS PK ({pk_columns})"
+                tables_with_pk.append((table_name, pk_info))
+            else:
+                status = "✗ NO PK"
+                tables_without_pk.append(table_name)
+            
+            click.echo(f"[{i}/{len(table_names)}] {table_name}: {status}")
+        
+        # Display results summary
+        if tables_with_pk:
+            click.echo(f"\nTables WITH primary keys ({len(tables_with_pk)}):")
+            click.echo("-" * 50)
+            
+            for table_name, pk_info in tables_with_pk:
+                pk_columns = ', '.join(pk_info['pk_columns'])
+                pk_name = pk_info['pk_name']
+                click.echo(f"  {table_name}: {pk_name} ({pk_columns})")
+        
+        if tables_without_pk:
+            click.echo(f"\nTables WITHOUT primary keys ({len(tables_without_pk)}):")
+            click.echo("-" * 50)
+            
+            for table_name in tables_without_pk:
+                row_count = _count_table_rows(engine, table_name)
+                formatted_count = _format_row_count(row_count)
+                click.echo(f"  {table_name:<30} {formatted_count} rows")
+        
+        # Summary
+        total_checked = len(tables_with_pk) + len(tables_without_pk)
+        if total_checked > 0:
+            pk_coverage = (len(tables_with_pk) / total_checked) * 100
+            click.echo(f"\nSummary:")
+            click.echo(f"  Primary key coverage: {len(tables_with_pk)}/{total_checked} tables ({pk_coverage:.1f}%)")
+            
+            if not tables_with_pk:
+                click.echo(f"  ⚠️  No tables have primary keys!")
+            elif not tables_without_pk:
+                click.echo(f"  ✅ All tables have primary keys.")
+            else:
+                click.echo(f"  ⚠️  {len(tables_without_pk)} tables missing primary keys.")
+                
     except Exception as e:
         click.echo(f"Error: {str(e)}")
 

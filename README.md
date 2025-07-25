@@ -5,10 +5,10 @@ Comprehensive data quality checker for PostgreSQL databases.
 ## Quick Usage
 
 ```bash
-# Run all data quality checks on a single table (DEFAULT: NaN, references, encoding)
+# Run all data quality checks on a single table (DEFAULT: NaN, references, encoding, primary keys)
 python main.py check-table "postgresql://user:pass@host:port/dbname" "table_name"
 
-# Run all data quality checks on all tables (DEFAULT: NaN, references, encoding)
+# Run all data quality checks on all tables (DEFAULT: NaN, references, encoding, primary keys)
 python main.py check-database "postgresql://user:pass@host:port/dbname"
 
 # Check only NaN values across all tables
@@ -26,6 +26,9 @@ python main.py check-large-tables "postgresql://user:pass@host:port/dbname"
 # Check if a column exists across all tables
 python main.py check-column "postgresql://user:pass@host:port/dbname" "column_name"
 
+# Check which tables have or lack primary keys
+python main.py check-pk "postgresql://user:pass@host:port/dbname"
+
 # Describe a table's structure and sample data
 python main.py describe-table "postgresql://user:pass@host:port/dbname" "table_name"
 ```
@@ -39,7 +42,7 @@ Run comprehensive data quality checks on a single table.
 **Usage:** `python main.py check-table DATABASE_URL TABLE_NAME [FLAGS]`
 
 **Behavior:**
-- **By default, runs ALL checks**: NaN values, orphaned references, and encoding issues
+- **By default, runs ALL checks**: NaN values, orphaned references, encoding issues, and primary key validation
 - Shows organized summary of all issues found in the table
 - Sample records include primary key and context columns
 
@@ -52,6 +55,7 @@ Run comprehensive data quality checks on a single table.
 - `--skip-nan-check` - Skip NaN value detection
 - `--skip-references-check` - Skip foreign key validation
 - `--skip-encoding-check` - Skip character encoding checks
+- `--skip-pk-check` - Skip primary key validation
 
 **Examples:**
 ```bash
@@ -72,7 +76,7 @@ Run comprehensive data quality checks across all tables in a database.
 **Usage:** `python main.py check-database DATABASE_URL [FLAGS]`
 
 **Behavior:**
-- **By default, runs ALL checks**: NaN values, orphaned references, and encoding issues
+- **By default, runs ALL checks**: NaN values, orphaned references, encoding issues, and primary key validation
 - Shows progress as tables are processed
 - Displays organized summary of all issues found
 - Sample records include primary key and context columns
@@ -90,6 +94,7 @@ Run comprehensive data quality checks across all tables in a database.
 - `--skip-nan-check` - Skip NaN value detection
 - `--skip-references-check` - Skip foreign key validation
 - `--skip-encoding-check` - Skip character encoding checks
+- `--skip-pk-check` - Skip primary key validation
 
 **Examples:**
 ```bash
@@ -253,6 +258,35 @@ python main.py check-column "db_url" "id"
 
 # Check for timestamp columns
 python main.py check-column "db_url" "created_at"
+```
+
+### `check-pk`
+
+Check for tables that have or lack primary keys.
+
+**Usage:** `python main.py check-pk DATABASE_URL [FLAGS]`
+
+**Behavior:**
+- Shows real-time progress as it processes each table
+- Lists tables WITH primary keys (showing constraint names and column names)
+- Lists tables WITHOUT primary keys (showing row counts for priority assessment)
+- Provides coverage summary and identifies tables at risk
+- Supports table filtering to focus on specific subsets
+
+**Table Filtering Flags:**
+- `--skip-large-tables` - Skip tables with more than 500K rows
+- `--skip-table TABLE_NAME` - Skip specific tables (can be used multiple times)
+
+**Examples:**
+```bash
+# Check all tables for primary keys
+python main.py check-pk "db_url"
+
+# Skip large tables to speed up analysis
+python main.py check-pk "db_url" --skip-large-tables
+
+# Skip system/metadata tables
+python main.py check-pk "db_url" --skip-table django_migrations --skip-table auth_permissions
 ```
 
 ### `describe-table`
