@@ -25,6 +25,9 @@ python main.py check-large-tables "postgresql://user:pass@host:port/dbname"
 
 # Check if a column exists across all tables
 python main.py check-column "postgresql://user:pass@host:port/dbname" "column_name"
+
+# Describe a table's structure and sample data
+python main.py describe-table "postgresql://user:pass@host:port/dbname" "table_name"
 ```
 
 ## Commands
@@ -250,4 +253,27 @@ python main.py check-column "db_url" "id"
 
 # Check for timestamp columns
 python main.py check-column "db_url" "created_at"
+```
+
+### `describe-table`
+
+Describe a table's structure, constraints, and basic statistics.
+
+**Usage:** `python main.py describe-table DATABASE_URL TABLE_NAME`
+
+**Behavior:**
+- Shows comprehensive table information including row count
+- Lists all columns with data types, nullable status, and defaults
+- Displays primary key, foreign keys, and indexes
+- Shows check constraints (if supported)
+- Provides sample data (first 3 rows) in pandas-like format
+- Validates table existence and suggests alternatives if not found
+
+**Examples:**
+```bash
+# Describe a user table
+python main.py describe-table "db_url" "users"
+
+# Describe a transaction table
+python main.py describe-table "db_url" "payments"
 ```

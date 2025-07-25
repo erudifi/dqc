@@ -1367,5 +1367,121 @@ def check_large_tables(database_url, threshold, show_all, top, skip_table):
         click.echo(f"Error: {str(e)}")
 
 
+@dqc.command()
+@click.argument('database_url')
+@click.argument('table_name')
+def describe_table(database_url, table_name):
+    """Describe a table's structure, constraints, and basic statistics."""
+    
+    try:
+        engine = create_engine(database_url)
+        inspector = inspect(engine)
+        
+        # Check if table exists
+        table_names = inspector.get_table_names()
+        if table_name not in table_names:
+            click.echo(f"Table '{table_name}' does not exist.")
+            click.echo(f"Available tables: {', '.join(table_names)}")
+            return
+        
+        click.echo(f"TABLE: {table_name}")
+        click.echo("=" * 60)
+        
+        # Basic table info
+        row_count = _count_table_rows(engine, table_name)
+        formatted_count = _format_row_count(row_count)
+        click.echo(f"Row count: {formatted_count}")
+        
+        # Column information
+        columns = inspector.get_columns(table_name)
+        click.echo(f"\nCOLUMNS ({len(columns)}):")
+        click.echo("-" * 60)
+        
+        for i, col in enumerate(columns, 1):
+            nullable_str = "NULL" if col.get('nullable', True) else "NOT NULL"
+            default_str = f" DEFAULT {col.get('default', 'None')}" if col.get('default') else ""
+            click.echo(f"{i:2}. {col['name']:<25} {str(col['type']):<20} {nullable_str}{default_str}")
+        
+        # Primary key
+        try:
+            pk = inspector.get_pk_constraint(table_name)
+            if pk and pk.get('constrained_columns'):
+                pk_columns = ', '.join(pk['constrained_columns'])
+                pk_name = pk.get('name', 'unnamed_pk')
+                click.echo(f"\nPRIMARY KEY:")
+                click.echo("-" * 60)
+                click.echo(f"Constraint: {pk_name}")
+                click.echo(f"Columns: {pk_columns}")
+        except Exception:
+            pass
+        
+        # Foreign keys
+        try:
+            foreign_keys = inspector.get_foreign_keys(table_name)
+            if foreign_keys:
+                click.echo(f"\nFOREIGN KEYS ({len(foreign_keys)}):")
+                click.echo("-" * 60)
+                
+                for i, fk in enumerate(foreign_keys, 1):
+                    fk_name = fk.get('name', f'fk_{i}')
+                    child_columns = ', '.join(fk['constrained_columns'])
+                    parent_table = fk['referred_table'] 
+                    parent_columns = ', '.join(fk['referred_columns'])
+                    click.echo(f"{i}. {fk_name}")
+                    click.echo(f"   {child_columns} -> {parent_table}({parent_columns})")
+        except Exception:
+            pass
+        
+        # Indexes
+        try:
+            indexes = inspector.get_indexes(table_name)
+            if indexes:
+                click.echo(f"\nINDEXES ({len(indexes)}):")
+                click.echo("-" * 60)
+                
+                for i, idx in enumerate(indexes, 1):
+                    idx_name = idx.get('name', f'idx_{i}')
+                    idx_columns = ', '.join(idx['column_names'])
+                    unique_str = " (UNIQUE)" if idx.get('unique', False) else ""
+                    click.echo(f"{i}. {idx_name}: {idx_columns}{unique_str}")
+        except Exception:
+            pass
+        
+        # Check constraints (if available)
+        try:
+            check_constraints = inspector.get_check_constraints(table_name)
+            if check_constraints:
+                click.echo(f"\nCHECK CONSTRAINTS ({len(check_constraints)}):")
+                click.echo("-" * 60)
+                
+                for i, chk in enumerate(check_constraints, 1):
+                    chk_name = chk.get('name', f'chk_{i}')
+                    chk_text = chk.get('sqltext', 'N/A')
+                    click.echo(f"{i}. {chk_name}: {chk_text}")
+        except Exception:
+            # Check constraints might not be supported in all PostgreSQL versions
+            pass
+        
+        # Sample data (first 3 rows)
+        try:
+            quoted_table = f'"{table_name}"'
+            sample_query = f"SELECT * FROM {quoted_table} LIMIT 3"
+            
+            with engine.connect() as conn:
+                result = conn.execute(text(sample_query))
+                rows = result.fetchall()
+                columns_list = list(result.keys())
+                
+                if rows:
+                    click.echo(f"\nSAMPLE DATA (first 3 rows):")
+                    click.echo("-" * 60)
+                    _display_dataframe(columns_list, rows)
+        except Exception:
+            pass
+            
+    except Exception as e:
+        click.echo(f"Error: {str(e)}")
+
+
 if __name__ == '__main__':
     dqc()
