@@ -1526,6 +1526,73 @@ def check_pk(database_url, skip_large_tables, skip_table):
 
 @dqc.command()
 @click.argument('database_url')
+def describe_all_tables(database_url):
+    """Describe the schema of all tables in a PostgreSQL database."""
+    
+    try:
+        engine = create_engine(database_url)
+        inspector = inspect(engine)
+        
+        table_names = inspector.get_table_names()
+        
+        if not table_names:
+            click.echo("No tables found in database.")
+            return
+        
+        click.echo(f"DATABASE SCHEMA - {len(table_names)} tables")
+        click.echo("=" * 70)
+        
+        for i, table_name in enumerate(table_names, 1):
+            try:
+                click.echo(f"\n{i}. TABLE: {table_name}")
+                click.echo("-" * 50)
+                
+                # Get row count
+                row_count = _count_table_rows(engine, table_name)
+                formatted_count = _format_row_count(row_count)
+                click.echo(f"Rows: {formatted_count}")
+                
+                # Get columns
+                columns = inspector.get_columns(table_name)
+                click.echo(f"Columns ({len(columns)}):")
+                
+                for j, col in enumerate(columns, 1):
+                    nullable_str = "NULL" if col.get('nullable', True) else "NOT NULL"
+                    default_str = f" DEFAULT {col.get('default')}" if col.get('default') else ""
+                    click.echo(f"  {j:2}. {col['name']:<25} {str(col['type']):<20} {nullable_str}{default_str}")
+                
+                # Primary key
+                try:
+                    pk = inspector.get_pk_constraint(table_name)
+                    if pk and pk.get('constrained_columns'):
+                        pk_columns = ', '.join(pk['constrained_columns'])
+                        click.echo(f"Primary Key: {pk_columns}")
+                except Exception:
+                    pass
+                
+                # Foreign keys
+                try:
+                    foreign_keys = inspector.get_foreign_keys(table_name)
+                    if foreign_keys:
+                        click.echo(f"Foreign Keys ({len(foreign_keys)}):")
+                        for fk in foreign_keys:
+                            child_columns = ', '.join(fk['constrained_columns'])
+                            parent_table = fk['referred_table']
+                            parent_columns = ', '.join(fk['referred_columns'])
+                            click.echo(f"  {child_columns} -> {parent_table}({parent_columns})")
+                except Exception:
+                    pass
+                
+            except Exception as e:
+                click.echo(f"Error describing table {table_name}: {str(e)}")
+                continue
+                
+    except Exception as e:
+        click.echo(f"Error: {str(e)}")
+
+
+@dqc.command()
+@click.argument('database_url')
 @click.argument('table_name')
 def describe_table(database_url, table_name):
     """Describe a table's structure, constraints, and basic statistics."""
